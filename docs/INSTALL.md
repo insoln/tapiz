@@ -27,6 +27,43 @@ Follow these steps to set up Tapiz using Docker:
    Make sure the redirect URL is set to `http://localhost:8000/api/auth/callback`.  
    Enter the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` into the `.env` file under the appropriate fields.
 
+   Google is optional when OpenID Connect is configured. For Keycloak or another
+   OIDC provider, create a confidential web client with standard
+   authorization-code flow and register
+   `http://localhost:8000/api/auth/oidc/callback` as its redirect URI. The
+   redirect may be local HTTP for development, but `OIDC_ISSUER` must be an
+   HTTPS issuer URL (for Keycloak:
+   `https://idp.example.com/realms/<realm>`), plus `OIDC_CLIENT_ID`,
+   `OIDC_CLIENT_SECRET`, and optionally `OIDC_DISPLAY_NAME`. Token endpoint
+   client authentication defaults to `client_secret_basic` (the OIDC discovery
+   default); set `OIDC_TOKEN_ENDPOINT_AUTH_METHOD=client_secret_post` only if
+   the provider and registered client require POST authentication.
+
+   Tapiz uses discovery, state, nonce and PKCE S256, and validates the ID
+   token with `openid-client`. If the ID token omits a verified email, Tapiz
+   fetches UserInfo and checks its subject against the ID token. Users are
+   keyed by issuer and subject. A
+   verified email is required, but it is never used to link accounts: if the
+   email already belongs to another Tapiz account, login fails with HTTP 409.
+   Migration `0011_youthful_vindicator` creates `oidc_identities` and applies
+   automatically at API startup. Migration `0012_case_insensitive_accounts_email`
+   adds a unique index on `lower(accounts.email)`. Before upgrading an existing
+   installation, run `pnpm check:email-collisions` with the production database
+   connection variables in an approved environment. It reports conflicting
+   account IDs and emails without modifying data. Resolve any collisions after
+   verifying account ownership; otherwise the migration fails at startup with a
+   specific error instead of retrying forever. On a 409, an administrator should
+   verify ownership with both providers and resolve the conflicting account or
+   email before retrying; do not link by email alone. Database regression tests
+   use a disposable PostgreSQL database and run with `pnpm test:oidc-db` after
+   setting the `POSTGRES_*` variables; ordinary unit tests skip them.
+
+   Kubernetes probes: `/api/livez` checks the process only after the server
+   starts listening, and `/api/readyz` checks PostgreSQL connectivity. Startup
+   waits for migrations and database connectivity, so configure a startupProbe
+   with enough time for PostgreSQL initialization and migrations before the
+   liveness probe begins; do not use `/api/livez` as readiness.
+
 4. **Build and Run the Docker Containers**  
    After configuring your environment variables, build and start the Docker containers by running:
 
